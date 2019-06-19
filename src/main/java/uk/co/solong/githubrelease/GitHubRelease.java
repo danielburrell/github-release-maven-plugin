@@ -9,12 +9,14 @@ import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
+import org.apache.maven.settings.Settings;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.RetryContext;
 import org.springframework.retry.RetryListener;
 import org.springframework.retry.backoff.FixedBackOffPolicy;
 import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
+import org.springframework.util.StringUtils;
 import uk.co.solong.githubrelease.githubapi.ReleaseApi;
 import uk.co.solong.githubrelease.githubapi.exceptions.AssetAlreadyExistsException;
 import uk.co.solong.githubrelease.githubapi.exceptions.GithubApiException;
@@ -44,13 +46,13 @@ public class GitHubRelease extends AbstractMojo {
     @Parameter(defaultValue = "${project.version}")
     private String tag;
 
-    @Parameter
-    private String token;
+    @Parameter(defaultValue = "")
+    private String serverId;
 
-    @Parameter
+    @Parameter(defaultValue = "")
     private String owner;
 
-    @Parameter
+    @Parameter(defaultValue = "")
     private String repo;
 
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
@@ -59,8 +61,21 @@ public class GitHubRelease extends AbstractMojo {
     @Parameter(defaultValue = "master")
     private String commitish;
 
+    @Parameter(defaultValue = "false")
+    private boolean skip;
+
+    @Parameter( defaultValue = "${settings}", readonly = true )
+    private Settings settings;
+
+    private String token;
 
     public void execute() throws MojoExecutionException, MojoFailureException {
+
+        if (skip) {
+            getLog().info("Skip set to true. Skipping");
+            return;
+        }
+        validate();
 
         //TODO get list of files
         //TODO ensure files exist.
@@ -136,6 +151,40 @@ public class GitHubRelease extends AbstractMojo {
 
 
 
+    }
+
+    private void validate() throws MojoExecutionException {
+        if (StringUtils.isEmpty(repo)) {
+            throw new MojoExecutionException("<repo> tag must be provided");
+        }
+        if (StringUtils.isEmpty(owner)) {
+            throw new MojoExecutionException("<owner> tag must be provided");
+        }
+        if (StringUtils.isEmpty(serverId)) {
+            throw new MojoExecutionException("<serverId> tag must be provided");
+        } else {
+            if (settings == null) {
+                throw new MojoExecutionException("settings.xml not found");
+            }
+            if (settings.getServer(serverId) == null) {
+                throw new MojoExecutionException("No serverId found in settings.xml for: "+serverId);
+            } else {
+                String privateKey = settings.getServer(serverId).getPrivateKey();
+                if (StringUtils.isEmpty(privateKey)) {
+                    throw new MojoExecutionException("No <privateKey> provided for serverId: "+serverId);
+                } else {
+                    token = privateKey;
+                }
+            }
+        }
+        if (artifacts == null) {
+            throw new MojoExecutionException("<artifacts> tag must be present");
+        }
+        for (Artifact a : artifacts) {
+            if (StringUtils.isEmpty(a.getFile())) {
+                throw new MojoExecutionException("<artifact> tag must have a <file> tag");
+            }
+        }
     }
 
     private boolean isValidToken(String token) {
