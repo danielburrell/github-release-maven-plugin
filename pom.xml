@@ -277,8 +277,8 @@
         </dependencies>
     </dependencyManagement>
     <scm>
-        <url>https://github.com/danielburrell/github-release-maven-plugin</url>
-        <connection>scm:git:git://github.com/danielburrell/github-release-maven-plugin.git</connection>
+        <connection>scm:git:git@github.com:danielburrell/github-release-maven-plugin.git</connection>
+        <url>scm:git:git@github.com:danielburrell/github-release-maven-plugin.git</url>
         <developerConnection>scm:git:git@github.com:danielburrell/github-release-maven-plugin.git</developerConnection>
         <tag>HEAD</tag>
     </scm>
