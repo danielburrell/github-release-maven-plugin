@@ -1,7 +1,7 @@
 package uk.co.solong.githubrelease;
 
-import co.uk.solong.githubapi.pojo.CreateReleaseRequest;
-import co.uk.solong.githubapi.pojo.CreateReleaseResponse;
+import co.uk.solong.githubapi.pojo.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
@@ -10,12 +10,6 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.settings.Settings;
-import org.springframework.retry.RetryCallback;
-import org.springframework.retry.RetryContext;
-import org.springframework.retry.RetryListener;
-import org.springframework.retry.backoff.FixedBackOffPolicy;
-import org.springframework.retry.policy.SimpleRetryPolicy;
-import org.springframework.retry.support.RetryTemplate;
 import org.springframework.util.StringUtils;
 import uk.co.solong.githubrelease.githubapi.ReleaseApi;
 import uk.co.solong.githubrelease.githubapi.exceptions.AssetAlreadyExistsException;
@@ -24,12 +18,10 @@ import uk.co.solong.githubrelease.githubapi.exceptions.ReleaseTagExistsException
 import uk.co.solong.githubrelease.githubapi.exceptions.UnknownGitHubApiException;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
-
-import static org.springframework.retry.policy.SimpleRetryPolicy.DEFAULT_MAX_ATTEMPTS;
 
 @Mojo(name = "github-release", defaultPhase = LifecyclePhase.DEPLOY)
 public class GitHubRelease extends AbstractMojo {
@@ -45,6 +37,14 @@ public class GitHubRelease extends AbstractMojo {
 
     @Parameter(defaultValue = "${project.version}")
     private String tag;
+
+    public void setServerId(String serverId) {
+        this.serverId = serverId;
+    }
+
+    public void setSettings(Settings settings) {
+        this.settings = settings;
+    }
 
     @Parameter(defaultValue = "")
     private String serverId;
@@ -67,6 +67,9 @@ public class GitHubRelease extends AbstractMojo {
     @Parameter( defaultValue = "${settings}", readonly = true )
     private Settings settings;
 
+    @Parameter( defaultValue = "false")
+    private boolean useExistingTag;
+
     private String token;
 
     public void execute() throws MojoExecutionException, MojoFailureException {
@@ -76,7 +79,94 @@ public class GitHubRelease extends AbstractMojo {
             return;
         }
         validate();
+        prepare();
 
+        if (!useExistingTag) {
+            doIndependentRelease();
+        } else {
+            doExistingTagRelease();
+        }
+
+    }
+
+    private void doExistingTagRelease() throws MojoFailureException {
+        try {
+            final ReleaseApi api = new ReleaseApi(token);
+            getLog().info("Configuring GitHub release");
+            GetReleaseByTagNameResponse releaseByTag = api.getReleaseByTag(owner, repo, tag);
+            Integer releaseId = releaseByTag.getId();
+            EditReleaseRequest editReleaseRequest = new EditReleaseRequest();
+            editReleaseRequest.setTagName(tag);
+            editReleaseRequest.setDraft(false);
+            editReleaseRequest.setName(releaseName);
+            editReleaseRequest.setBody(description);
+            editReleaseRequest.setPrerelease(false);
+
+            EditReleaseResponse editReleaseResponse = api.editRelease(owner, repo, releaseId, editReleaseRequest);
+
+            String uploadUrl = editReleaseResponse.getUploadUrl();
+            attachArtefacts(api, uploadUrl);
+
+        } catch (UnknownGitHubApiException e) {
+            throw new MojoFailureException("The GitHub API returned an unknown exception: ", e);
+        } //your GithubApiException Subclass Here
+        catch (GithubApiException e) {
+            throw new MojoFailureException("The release could not be created. The reason is "+e.getApiMessage());
+        } catch(MojoFailureException e) {
+            throw e;
+        } catch (Throwable e) {
+            getLog().error("GitHub publication failed.");
+            throw new MojoFailureException("Unknown exception occured whilst running GitHub Release",e);
+        }
+    }
+
+    private void doIndependentRelease() throws MojoFailureException {
+        try {
+
+            final ReleaseApi api = new ReleaseApi(token);
+
+            getLog().info("Configuring GitHub release");
+            CreateReleaseRequest createReleaseRequest = new CreateReleaseRequest();
+            createReleaseRequest.setTagName(tag);
+            createReleaseRequest.setDraft(false);
+            createReleaseRequest.setName(releaseName);
+            createReleaseRequest.setBody(description);
+            createReleaseRequest.setPrerelease(false);
+            createReleaseRequest.setTargetCommitish(commitish);
+
+            getLog().info("Creating GitHub release");
+            CreateReleaseResponse release = api.createRelease(owner, repo, createReleaseRequest);
+            String uploadUrl = release.getUploadUrl();
+            attachArtefacts(api, uploadUrl);
+            getLog().info("GitHub Release Completed Successfully. Artifacts Uploaded.");
+        } catch (UnknownGitHubApiException e) {
+            throw new MojoFailureException("The GitHub API returned an unknown exception: ", e);
+        } catch (ReleaseTagExistsException e) {
+            throw new MojoFailureException("The release could not be created because release tag " + tag + " already exists in repository: " + owner + "/" + repo);
+        } catch (GithubApiException e) {
+            throw new MojoFailureException("The release could not be created. The reason is "+e.getApiMessage());
+        } catch(MojoFailureException e) {
+            throw e;
+        } catch (Throwable e) {
+            getLog().error("GitHub publication failed.");
+            throw new MojoFailureException("Unknown exception occured whilst running GitHub Release",e);
+        }
+    }
+
+    private void attachArtefacts(ReleaseApi api, String uploadUrl) throws IOException, GithubApiException, MojoFailureException {
+        getLog().info("Attaching Artifacts:");
+        for (Artifact artifact : artifacts) {
+            getLog().info("Attaching Artifact: " + artifact.getFile());
+            File file = new File(artifact.getFile());
+            try {
+                api.uploadAssetResponse(uploadUrl, file, artifact.getLabel());
+            } catch (AssetAlreadyExistsException e) {
+                throw new MojoFailureException("The release could not be created because asset "+file+" already exists in repository: " + owner + "/" + repo);
+            }
+        }
+    }
+
+    private void prepare() throws MojoExecutionException {
         //TODO get list of files
         //TODO ensure files exist.
         //TODO create release
@@ -92,6 +182,8 @@ public class GitHubRelease extends AbstractMojo {
         getLog().info("Tag: "+tag);
         getLog().info("Release Name: "+releaseName);
         getLog().info("Description: "+description);
+        getLog().info("Commitish: "+commitish);
+
         getLog().info("Artifact(s): ");
 
         List<File> missingFiles = new ArrayList<>();
@@ -108,52 +200,13 @@ public class GitHubRelease extends AbstractMojo {
         if (missingFiles.size() > 0) {
             throw new MojoExecutionException("Could not publish the following artefacts as they do not exist:"+System.lineSeparator()+missingFiles.stream().map(File::getAbsolutePath).collect(Collectors.joining(System.lineSeparator())));
         }
-
-        try {
-
-
-            final ReleaseApi api = new ReleaseApi(token);
-
-            getLog().info("Configuring GitHub release");
-            CreateReleaseRequest createReleaseRequest = new CreateReleaseRequest();
-            createReleaseRequest.setTagName(tag);
-            createReleaseRequest.setDraft(false);
-            createReleaseRequest.setName(releaseName);
-            createReleaseRequest.setBody(description);
-            createReleaseRequest.setPrerelease(false);
-            createReleaseRequest.setTargetCommitish(commitish);
-
-            getLog().info("Creating GitHub release");
-            CreateReleaseResponse release = api.createRelease(owner, repo, createReleaseRequest);
-            getLog().info("Attaching Artifacts:");
-            for (Artifact artifact : artifacts) {
-                getLog().info("Attaching Artifact: " + artifact.getFile());
-                File file = new File(artifact.getFile());
-                try {
-                    api.uploadAssetResponse(release, file, artifact.getLabel());
-                } catch (AssetAlreadyExistsException e) {
-                    throw new MojoFailureException("The release could not be created because asset "+file+" already exists in repository: " + owner + "/" + repo);
-                }
-            }
-            getLog().info("GitHub Release Completed Successfully. Artifacts Uploaded.");
-        } catch (UnknownGitHubApiException e) {
-            throw new MojoFailureException("The GitHub API returned an unknown exception: ", e);
-        } catch (ReleaseTagExistsException e) {
-            throw new MojoFailureException("The release could not be created because release tag " + tag + " already exists in repository: " + owner + "/" + repo);
-        } catch (GithubApiException e) {
-            throw new MojoFailureException("The release could not be created. The reason is "+e.getApiMessage());
-        } catch(MojoFailureException e) {
-            throw e;
-        } catch (Throwable e) {
-            getLog().error("GitHub publication failed.");
-            throw new MojoFailureException("Unknown exception occured whilst running GitHub Release",e);
-        }
-
-
-
     }
 
     private void validate() throws MojoExecutionException {
+        //commitish should not be provided with useExistingTag
+        if (useExistingTag && !StringUtils.isEmpty(commitish) ) {
+            getLog().warn("<commitish> tag not required when <useExistingTag> present.");
+        }
         if (StringUtils.isEmpty(repo)) {
             throw new MojoExecutionException("<repo> tag must be provided");
         }
@@ -225,4 +278,7 @@ public class GitHubRelease extends AbstractMojo {
         this.project = project;
     }
 
+    public void setUseExistingTag(boolean useExistingTag) {
+        this.useExistingTag = useExistingTag;
+    }
 }

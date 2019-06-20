@@ -259,6 +259,11 @@
             <artifactId>commons-lang3</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpclient</artifactId>
+            <version>4.5.9</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.batch</groupId>
             <artifactId>spring-batch-core</artifactId>
         </dependency>
@@ -278,6 +283,6 @@
         <connection>scm:git:git@github.com:danielburrell/github-release-maven-plugin.git</connection>
         <url>scm:git:git@github.com:danielburrell/github-release-maven-plugin.git</url>
         <developerConnection>scm:git:git@github.com:danielburrell/github-release-maven-plugin.git</developerConnection>
-        <tag>HEAD</tag>
+        <tag>github-release-maven-plugin-1.1</tag>
     </scm>
 </project>
