@@ -1,6 +1,7 @@
 package uk.co.solong.githubrelease;
 
 import co.uk.solong.githubapi.pojo.*;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -72,6 +73,8 @@ public class GitHubRelease extends AbstractMojo {
 
     private String token;
 
+    private List<Object> requestLog;
+
     public void execute() throws MojoExecutionException, MojoFailureException {
 
         if (skip) {
@@ -82,9 +85,35 @@ public class GitHubRelease extends AbstractMojo {
         prepare();
 
         if (!useExistingTag) {
-            doIndependentRelease();
+            try {
+                doIndependentRelease();
+            } catch (Throwable e) {
+                ObjectMapper m = new ObjectMapper();
+                getLog().warn("Exception occured. Dumping request sequence");
+                for (Object o : requestLog) {
+                    try {
+                        getLog().info(m.writeValueAsString(o));
+                    } catch (JsonProcessingException ex) {
+                        getLog().error(ex);
+                    }
+                }
+                throw e;
+            }
         } else {
-            doExistingTagRelease();
+            try {
+                doExistingTagRelease();
+            } catch (Throwable e) {
+                ObjectMapper m = new ObjectMapper();
+                getLog().warn("Exception occured. Dumping request sequence");
+                for (Object o : requestLog) {
+                    try {
+                        getLog().info(m.writeValueAsString(o));
+                    } catch (JsonProcessingException ex) {
+                        getLog().error(ex);
+                    }
+                }
+                throw e;
+            }
         }
 
     }
@@ -102,6 +131,7 @@ public class GitHubRelease extends AbstractMojo {
             editReleaseRequest.setBody(description);
             editReleaseRequest.setPrerelease(false);
 
+            requestLog.add(editReleaseRequest);
             EditReleaseResponse editReleaseResponse = api.editRelease(owner, repo, releaseId, editReleaseRequest);
 
             String uploadUrl = editReleaseResponse.getUploadUrl();
@@ -133,7 +163,7 @@ public class GitHubRelease extends AbstractMojo {
             createReleaseRequest.setBody(description);
             createReleaseRequest.setPrerelease(false);
             createReleaseRequest.setTargetCommitish(commitish);
-
+            requestLog.add(createReleaseRequest);
             getLog().info("Creating GitHub release");
             CreateReleaseResponse release = api.createRelease(owner, repo, createReleaseRequest);
             String uploadUrl = release.getUploadUrl();
