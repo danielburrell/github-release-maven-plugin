@@ -73,7 +73,7 @@ public class GitHubRelease extends AbstractMojo {
 
     private String token;
 
-    private List<Object> requestLog;
+    private List<Object> requestLog = new ArrayList<>();
 
     public void execute() throws MojoExecutionException, MojoFailureException {
 
