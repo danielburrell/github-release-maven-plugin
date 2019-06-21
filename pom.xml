@@ -12,7 +12,7 @@
     <artifactId>github-release-maven-plugin</artifactId>
     <packaging>maven-plugin</packaging>
 
-    <version>1.2-SNAPSHOT</version>
+    <version>1.2</version>
 
     <name>GitHub Release Maven Plugin</name>
     <description>A maven plugin for publishing artifacts to GitHub releases</description>
@@ -283,6 +283,6 @@
         <connection>scm:git:git@github.com:danielburrell/github-release-maven-plugin.git</connection>
         <url>scm:git:git@github.com:danielburrell/github-release-maven-plugin.git</url>
         <developerConnection>scm:git:git@github.com:danielburrell/github-release-maven-plugin.git</developerConnection>
-        <tag>github-release-maven-plugin-1.1</tag>
+        <tag>github-release-maven-plugin-1.2</tag>
     </scm>
 </project>
